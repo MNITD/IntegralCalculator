@@ -1,0 +1,8 @@
+abs_accuracy=0
+rel_accuracy=0
+threads=5
+interval_start_x=0.0
+interval_end_x=5.0
+interval_start_y=0.0
+interval_end_y=5.0
+res="../addition/res.txt"
