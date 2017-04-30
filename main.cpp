@@ -54,7 +54,6 @@ std::vector<std::string> split(std::string & line){
 
     while( split >> word ) {
         words.push_back(word);
-        std::cout << word << std::endl;
     }
 
     return words;
