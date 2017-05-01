@@ -13,6 +13,7 @@ void thread_handler(double x_start, double x_end, double y_start, double y_end, 
 void read(std::ifstream  & file, int amount, std::vector<std::string>*text);
 void reduce_symbols(std::string & line, const std::string & symbols);
 std::vector<std::string>  split(std::string & line);
+void start_threads();
 double calculate_func(double x1, double x2);
 void update_sum(double & sum, double & temp_sum, std::mutex & sum_mutex);
 
@@ -29,7 +30,6 @@ void thread_handler(double x_start, double x_end, double y_start, double y_end, 
     update_sum(sum, temp_sum, sum_mutex);
 }
 void read(std::ifstream  & file, int amount, std::vector<std::string>*text){
-
     int i = 0;
     std::string line;
 
@@ -57,6 +57,19 @@ std::vector<std::string> split(std::string & line){
     }
 
     return words;
+}
+void start_threads(std::vector<std::thread*> & threads, int threads_num, double start_y, double step_y, double start_x, double end_x, double step_x, double & sum, std::mutex & sum_mutex){
+    for(int i = 0; i < threads_num; i++){
+
+        double temp_start_y = start_y + step_y * i;
+        double temp_end_y = temp_start_y + step_y;
+
+        threads.push_back(new std::thread (thread_handler,  start_x,  end_x,  temp_start_y,  temp_end_y, step_x, std::ref(sum), std::ref(sum_mutex)));
+    }
+
+    std::for_each (threads.begin(), threads.end(), [](std::thread *thread){
+        thread->join();
+    });
 }
 void update_sum(double & sum, double & temp_sum, std::mutex & sum_mutex){
     std::lock_guard<std::mutex> lock(sum_mutex);
@@ -92,18 +105,23 @@ int main() {
 
     const std::string symbols_c = "=\"";
     const std::string config_name("../addition/config.txt");
+    const std::string abs_inaccuracy_name("abs_inaccuracy");
+    const std::string rel_inaccuracy_name("rel_inaccuracy");
     const std::string start_x_name("interval_start_x");
     const std::string start_y_name("interval_start_y");
     const std::string end_x_name("interval_end_x");
     const std::string end_y_name("interval_end_y");
     const std::string result_name("res");
     const std::string threads_name("threads");
+    double abs_inaccuracy;
+    double rel_inaccuracy;
     double start_x;
     double start_y;
     double end_x;
     double end_y;
     double sum = 0.0;
-    double step_x = 1.0;
+    double temp_sum = 0.0;
+    double step_x = 1;
     double step_y;
     int threads_num = 0;
     std::ifstream file_config(config_name);
@@ -129,6 +147,8 @@ int main() {
         config_dict[words.at(0)] = words.at(1);
     });
 
+    abs_inaccuracy = std::stod(config_dict[abs_inaccuracy_name]);
+    rel_inaccuracy = std::stod(config_dict[rel_inaccuracy_name]);
     start_x = std::stod(config_dict[start_x_name]);
     start_y = std::stod(config_dict[start_y_name]);
     end_x = std::stod(config_dict[end_x_name]);
@@ -143,17 +163,18 @@ int main() {
 
     step_y = ( end_y - start_y ) / threads_num;
 
-    for(int i = 0; i < threads_num; i++){
+    start_threads(std::ref(threads),threads_num, start_y,  step_y,  start_x,  end_x,  step_x, std::ref(sum), std::ref(sum_mutex));
 
-        double temp_start_y = start_y + step_y * i;
-        double temp_end_y = temp_start_y + step_y;
+    while(abs(sum - temp_sum) > abs_inaccuracy){
+        sum = temp_sum;
+        temp_sum = 0.0;
+        threads.clear();
+        step_x /= 2;
 
-        threads.push_back(new std::thread (thread_handler,  start_x,  end_x,  temp_start_y,  temp_end_y, step_x, std::ref(sum), std::ref(sum_mutex)));
+        start_threads(std::ref(threads),threads_num, start_y,  step_y,  start_x,  end_x,  step_x, std::ref(temp_sum), std::ref(sum_mutex));
     }
+    sum = temp_sum;
 
-    std::for_each (threads.begin(), threads.end(), [](std::thread *thread){
-        thread->join();
-    });
 
     count_finish_time = get_current_time_fenced();
 
@@ -162,7 +183,7 @@ int main() {
      */
 
     std::cout << "Calculation: "<< to_us(count_finish_time - count_start_time) << std::endl;
-
+    std::cout << "Sum: "<< sum << std::endl;
 
     return 0;
 }
