@@ -123,6 +123,7 @@ int main() {
     double temp_sum = 0.0;
     double step_x = 1;
     double step_y;
+    double actual_abs_inaccuracy = 0;
     int threads_num = 0;
     std::ifstream file_config(config_name);
     std::ofstream file_result;
@@ -165,13 +166,16 @@ int main() {
 
     start_threads(std::ref(threads),threads_num, start_y,  step_y,  start_x,  end_x,  step_x, std::ref(sum), std::ref(sum_mutex));
 
-    while(abs(sum - temp_sum) > abs_inaccuracy){
+    actual_abs_inaccuracy = abs(sum - temp_sum);
+    while(actual_abs_inaccuracy > abs_inaccuracy){
         sum = temp_sum;
         temp_sum = 0.0;
         threads.clear();
         step_x /= 2;
 
         start_threads(std::ref(threads),threads_num, start_y,  step_y,  start_x,  end_x,  step_x, std::ref(temp_sum), std::ref(sum_mutex));
+
+        actual_abs_inaccuracy = abs(sum - temp_sum);
     }
     sum = temp_sum;
 
@@ -182,8 +186,16 @@ int main() {
      * Finish of calculation (above)
      */
 
+    file_result.open(config_dict[result_name]);
+
+    file_result << "Volume: "<< sum << std::endl;
+    file_result << "Abs Inaccuracy: "<< actual_abs_inaccuracy << std::endl;
+    file_result << "Time: "<< to_us(count_finish_time - count_start_time) << std::endl;
+
+    file_result.close();
+
     std::cout << "Calculation: "<< to_us(count_finish_time - count_start_time) << std::endl;
-    std::cout << "Sum: "<< sum << std::endl;
+    std::cout << "Volume: "<< sum << std::endl;
 
     return 0;
 }
