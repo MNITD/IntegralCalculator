@@ -9,6 +9,7 @@
 #include <atomic>
 #include <map>
 #include <cstring>
+#include <mpi.h>
 
 
 class Vertex {
@@ -135,7 +136,7 @@ inline long long to_us(const D &d) {
     return std::chrono::duration_cast<std::chrono::microseconds>(d).count();
 }
 
-int main() {
+int main(int argc, char *argv[]) {
     const std::string symbols_c = "=\"";
     const std::string config_name("../addition/config.txt");
     const std::string abs_inaccuracy_name("abs_inaccuracy");
@@ -182,7 +183,7 @@ int main() {
         std::string string_to_pass;
 
         read(file_config, 8, &config_text);
-        std::for_each(config_text.begin(), config_text.end(), [&symbols_c, &](std::string &line) {
+        std::for_each(config_text.begin(), config_text.end(), [&symbols_c, &string_to_pass](std::string &line) {
             reduce_symbols(line, symbols_c);
             string_to_pass+line+" ";
         });
