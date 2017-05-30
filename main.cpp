@@ -9,13 +9,23 @@
 #include <atomic>
 #include <map>
 
-void thread_handler(double x_start, double x_end, double y_start, double y_end,  double step, double & sum, std::mutex & sum_mutex);
-void read(std::ifstream  & file, int amount, std::vector<std::string>*text);
-void reduce_symbols(std::string & line, const std::string & symbols);
-std::vector<std::string>  split(std::string & line);
-void start_threads();
-double calculate_func(double x1, double x2);
-void update_sum(double & sum, double & temp_sum, std::mutex & sum_mutex);
+void update_sum(double & sum, double & temp_sum, std::mutex & sum_mutex){
+    std::lock_guard<std::mutex> lock(sum_mutex);
+    sum += temp_sum;
+}
+double calculate_func(double x1, double x2){
+    const double FUN_CONST = 0.002;
+    double temp_sum = 0.0;
+
+    for(int i = -2; i <= 2; i++){
+        for(int j=-2; j <= 2; j++){
+            temp_sum += 1 / (5 * ( i + 2 ) + j + 3 + pow((x1 - 16 * j), 6.0) + pow((x2 - 16 * i), 6.0) );
+        }
+    }
+    temp_sum += FUN_CONST;
+    temp_sum = pow(temp_sum, -1.0);
+    return  temp_sum;
+}
 
 void thread_handler(double x_start, double x_end, double y_start, double y_end, double step, double & sum, std::mutex & sum_mutex){
 
@@ -58,7 +68,8 @@ std::vector<std::string> split(std::string & line){
 
     return words;
 }
-void start_threads(std::vector<std::thread*> & threads, int threads_num, double start_y, double step_y, double start_x, double end_x, double step_x, double & sum, std::mutex & sum_mutex){
+void start_threads( int threads_num, double start_y, double step_y, double start_x, double end_x, double step_x, double & sum, std::mutex & sum_mutex){
+    std::vector<std::thread*> threads;
     for(int i = 0; i < threads_num; i++){
 
         double temp_start_y = start_y + step_y * i;
@@ -71,23 +82,7 @@ void start_threads(std::vector<std::thread*> & threads, int threads_num, double 
         thread->join();
     });
 }
-void update_sum(double & sum, double & temp_sum, std::mutex & sum_mutex){
-    std::lock_guard<std::mutex> lock(sum_mutex);
-    sum += temp_sum;
-}
-double calculate_func(double x1, double x2){
-    const double FUN_CONST = 0.002;
-    double temp_sum = 0.0;
 
-    for(int i = -2; i <= 2; i++){
-        for(int j=-2; j <= 2; j++){
-            temp_sum += 1 / (5 * ( i + 2 ) + j + 3 + pow((x1 - 16 * j), 6.0) + pow((x2 - 16 * i), 6.0) );
-        }
-    }
-    temp_sum += FUN_CONST;
-    temp_sum = pow(temp_sum, -1.0);
-    return  temp_sum;
-}
 
 inline std::chrono::high_resolution_clock::time_point get_current_time_fenced(){
     std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -128,7 +123,7 @@ int main() {
     std::ifstream file_config(config_name);
     std::ofstream file_result;
     std::vector<std::string>config_text;
-    std::vector<std::thread*> threads;
+
     std::map<std::string, std::string> config_dict;
     std::mutex sum_mutex;
     std::chrono::high_resolution_clock::time_point count_start_time;
@@ -164,16 +159,15 @@ int main() {
 
     step_y = ( end_y - start_y ) / threads_num;
 
-    start_threads(std::ref(threads),threads_num, start_y,  step_y,  start_x,  end_x,  step_x, std::ref(sum), std::ref(sum_mutex));
+    start_threads(threads_num, start_y,  step_y,  start_x,  end_x,  step_x, sum, sum_mutex);
 
     actual_abs_inaccuracy = abs(sum - temp_sum);
     while(actual_abs_inaccuracy > abs_inaccuracy){
         sum = temp_sum;
         temp_sum = 0.0;
-        threads.clear();
         step_x /= 2;
 
-        start_threads(std::ref(threads),threads_num, start_y,  step_y,  start_x,  end_x,  step_x, std::ref(temp_sum), std::ref(sum_mutex));
+        start_threads(threads_num, start_y,  step_y,  start_x,  end_x,  step_x, temp_sum, sum_mutex);
 
         actual_abs_inaccuracy = abs(sum - temp_sum);
     }
