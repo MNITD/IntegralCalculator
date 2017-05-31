@@ -58,15 +58,24 @@ double calculate_func(double x1, double x2) {
     return temp_sum;
 }
 
-void thread_handler(double x_start, double x_end, double y_start, double y_end, double step, double &sum) {
+void thread_handler(double x_start, double x_end, double y_start, double y_end, double inc_x, double &sum) {
 
     double temp_sum = 0.0;
-    double y_interval = y_end - y_start;
-    double y_middle = (y_start + y_end) / 2;
-    while (x_start < x_end) {
-        double x_middle = x_start + step / 2;
-        temp_sum += calculate_func(x_middle, y_middle) * y_interval * step;
-        x_start += step;
+    double inc_y = 0.1;
+    double y_interval;
+    double y_middle = y_start + (inc_y / 2);
+    double x_middle;
+
+
+    while (y_middle < y_end) {
+//        y_interval = y_end - y_start;
+        x_middle = x_start +  (inc_x / 2);
+
+        while (x_middle < x_end) {
+            temp_sum += (calculate_func(x_middle, y_middle) * inc_y * inc_x);
+            x_middle += inc_x;
+        }
+        y_middle += inc_y;
     }
     sum += temp_sum;
 }
@@ -103,24 +112,13 @@ std::vector<std::string> split(std::string &line) {
     return words;
 }
 
-void start_threads(int threads_num, Figure &figure, double inc_x, double &sum) {
-    std::vector<std::thread *> threads;
-    double side = (figure.get_vertex(1).y - figure.get_vertex(0).y) / threads_num;
+void start_threads(int commsize, int proc_rank, Figure &figure, double inc_x, double &sum) {
+    double side = (figure.get_vertex(1).y - figure.get_vertex(0).y) / commsize;
 
-    for (int i = 0; i < threads_num; i++) {
+    double temp_start_y = figure.get_vertex(0).y + (side * proc_rank);
+    double temp_end_y = temp_start_y + side;
 
-        double temp_start_y = figure.get_vertex(0).y + side * i;
-        double temp_end_y = temp_start_y + side;
-
-//        threads.push_back(
-//                new std::thread(thread_handler, figure.get_vertex(0).x, figure.get_vertex(2).x, temp_start_y, temp_end_y, inc_x, std::ref(sum),
-//                                std::ref(sum_mutex)));
-        thread_handler(figure.get_vertex(0).x, figure.get_vertex(2).x, temp_start_y, temp_end_y, inc_x, sum);
-    }
-
-//    std::for_each(threads.begin(), threads.end(), [](std::thread *thread) {
-//        thread->join();
-//    });
+    thread_handler(figure.get_vertex(0).x, figure.get_vertex(2).x, temp_start_y, temp_end_y, inc_x, sum);
 }
 
 
@@ -138,7 +136,7 @@ inline long long to_us(const D &d) {
 
 int main(int argc, char *argv[]) {
     const std::string symbols_c = "=\"";
-    const std::string config_name("../addition/config.txt");
+    const std::string config_name("addition/config.txt");
     const std::string abs_inaccuracy_name("abs_inaccuracy");
     const std::string rel_inaccuracy_name("rel_inaccuracy");
     const std::string x1_name("interval_start_x");
@@ -154,15 +152,15 @@ int main(int argc, char *argv[]) {
     double sendbuf[1], *resbuf;
     double sum = 0.0;
     double temp_sum = 0.0;
-    double inc_x = 0.2;
+    double inc_x = 0.1;
     double actual_abs_inaccuracy = 0;
-    int threads_num = 0;
-    std::ifstream file_config(config_name);
+//    int threads_num = 0;
+    std::ifstream file_config;
     std::ofstream file_result;
     std::vector<std::string> config_text;
 
     std::map<std::string, std::string> config_dict;
-    std::mutex sum_mutex;
+
     std::chrono::high_resolution_clock::time_point count_start_time;
     std::chrono::high_resolution_clock::time_point count_finish_time;
 
@@ -172,45 +170,49 @@ int main(int argc, char *argv[]) {
     int commsize, rank, len, number, max, interval;
     char procname[MPI_MAX_PROCESSOR_NAME];
     MPI_Init(&argc, &argv);
-    MPI_Comm_size(MPI_COMM_WORLD, &threads_num);
+    MPI_Comm_size(MPI_COMM_WORLD, &commsize);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Get_processor_name(procname, &len);
+
+
+    printf("Process %d of %d on node %s \n", rank, commsize, procname);
 
     /*
      * Read config file and create config dictionary
      */
+
     if (rank == 0) {
+
+        file_config.open(config_name);
+
         std::string string_to_pass;
 
         read(file_config, 8, &config_text);
+
         std::for_each(config_text.begin(), config_text.end(), [&symbols_c, &string_to_pass](std::string &line) {
             reduce_symbols(line, symbols_c);
-            string_to_pass+line+" ";
+            string_to_pass += line + " ";
         });
 
         std::strncpy(config, string_to_pass.c_str(), sizeof(config));
         config[sizeof(config) - 1] = 0;
 
-//        std::for_each(config_text.begin(), config_text.end(), [&config_dict](std::string &line) {
-//            std::vector<std::string> words = split(line);
-//            config_dict[words.at(0)] = words.at(1);
-//        });
-
         resbuf = (double *) malloc(commsize * 1 * sizeof(double));
-
 
     }
     MPI_Bcast(config, sizeof(config),
               MPI_CHAR,
-            0 , MPI_COMM_WORLD);
+              0, MPI_COMM_WORLD);
 
-    if(rank != 0){
-        std::string received_string(config);
-        std::vector<std::string> words = split(received_string);
-        for(int i = 0 ; i < words.size(); i+=2){
-            config_dict[words.at(i)] = words.at(i+1);
-        }
+    MPI_Barrier(MPI_COMM_WORLD);
+
+
+    std::string received_string(config);
+    std::vector<std::string> words = split(received_string);
+    for (int i = 0; i < words.size(); i += 2) {
+        config_dict[words.at(i)] = words.at(i + 1);
     }
+
 
     abs_inaccuracy = std::stod(config_dict[abs_inaccuracy_name]);
     rel_inaccuracy = std::stod(config_dict[rel_inaccuracy_name]);
@@ -228,27 +230,27 @@ int main(int argc, char *argv[]) {
     figure.add_vertex(v3);
     figure.add_vertex(v4);
 
-    threads_num = std::stoi(config_dict[threads_name]);
-
     /*
-     * Start of calculation 
+     * Start of calculation
      */
 
-    count_start_time = get_current_time_fenced();
+    if (rank == 0) {
+        count_start_time = get_current_time_fenced();
+    }
 
-    start_threads(threads_num, figure, inc_x, sum);
+    start_threads(commsize, rank, figure, inc_x, sum);
 
     actual_abs_inaccuracy = abs(sum - temp_sum);
     while (actual_abs_inaccuracy > abs_inaccuracy) {
-        sum = temp_sum;
         temp_sum = 0.0;
         inc_x /= 2;
 
-        start_threads(threads_num, figure, inc_x, temp_sum);
+        start_threads(commsize, rank, figure, inc_x, temp_sum);
 
         actual_abs_inaccuracy = abs(sum - temp_sum);
+        sum = temp_sum;
     }
-//    sum = temp_sum;
+
     sendbuf[0] = temp_sum;
 
 
@@ -266,26 +268,26 @@ int main(int argc, char *argv[]) {
             printf("Root: %f\n", resbuf[i]);
             sum += resbuf[i];
         }
+        count_finish_time = get_current_time_fenced();
+
+        /*
+         * Finish of calculation (above)
+         */
+
+        file_result.open(config_dict[result_name]);
+
+        file_result << "Volume: " << sum << std::endl;
+        file_result << "Abs Inaccuracy: " << actual_abs_inaccuracy << std::endl;
+        file_result << "Time: " << to_us(count_finish_time - count_start_time) << std::endl;
+
+        file_result.close();
+
+        std::cout << "Time: " << to_us(count_finish_time - count_start_time) << std::endl;
+        std::cout << "Volume: " << sum << std::endl;
     }
 
 
-
-    count_finish_time = get_current_time_fenced();
-
-    /*
-     * Finish of calculation (above)
-     */
-
-    file_result.open(config_dict[result_name]);
-
-    file_result << "Volume: " << sum << std::endl;
-    file_result << "Abs Inaccuracy: " << actual_abs_inaccuracy << std::endl;
-    file_result << "Time: " << to_us(count_finish_time - count_start_time) << std::endl;
-
-    file_result.close();
-
-    std::cout << "Time: " << to_us(count_finish_time - count_start_time) << std::endl;
-    std::cout << "Volume: " << sum << std::endl;
+    MPI_Finalize();
 
     return 0;
 }

@@ -1,8 +1,8 @@
-abs_inaccuracy=20.0
+abs_inaccuracy=0.5
 rel_inaccuracy=0.005
 threads=5
 interval_start_x=-20.0
 interval_end_x=20.0
 interval_start_y=-20.0
 interval_end_y=20.0
-res="../addition/res.txt"
+res="addition/res.txt"
