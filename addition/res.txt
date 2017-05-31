@@ -1,3 +1,3 @@
-Volume: 641941
-Abs Inaccuracy: 0.00314126
-Time: 69746725
+Volume: 641939
+Abs Inaccuracy: 0.474575
+Time: 1024292

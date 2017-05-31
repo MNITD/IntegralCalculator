@@ -11,35 +11,14 @@
 #include <cstring>
 #include <mpi.h>
 
-
-class Vertex {
+class Interval {
 public:
-    double x{0};
-    double y{0};
+    double p1{0};
+    double p2{0};
 
-    Vertex(double x, double y) {
-        this->x = x;
-        this->y = y;
-    }
-};
-
-class Figure {
-private:
-    std::vector<Vertex> vertexes;
-    size_t max_size = 0;
-public:
-    Figure(size_t size) {
-        this->max_size = size;
-    }
-
-    void add_vertex(Vertex &v) {
-        if (vertexes.size() < max_size) {
-            vertexes.push_back(v);
-        }
-    }
-
-    Vertex get_vertex(unsigned int index) {
-        return vertexes.at(index);
+    Interval(double p1, double p2) {
+        this->p1 = p1;
+        this->p2 = p2;
     }
 };
 
@@ -58,20 +37,17 @@ double calculate_func(double x1, double x2) {
     return temp_sum;
 }
 
-void thread_handler(double x_start, double x_end, double y_start, double y_end, double inc_x, double &sum) {
+void thread_handler(Interval &x_interval,Interval &y_interval,  double inc_x, double &sum) {
 
     double temp_sum = 0.0;
     double inc_y = 0.1;
-    double y_interval;
-    double y_middle = y_start + (inc_y / 2);
+    double y_middle = y_interval.p1 + (inc_y / 2);
     double x_middle;
 
+    while (y_middle < y_interval.p2) {
+        x_middle =  x_interval.p1 + (inc_x / 2);
 
-    while (y_middle < y_end) {
-//        y_interval = y_end - y_start;
-        x_middle = x_start +  (inc_x / 2);
-
-        while (x_middle < x_end) {
+        while (x_middle <  x_interval.p2) {
             temp_sum += (calculate_func(x_middle, y_middle) * inc_y * inc_x);
             x_middle += inc_x;
         }
@@ -112,13 +88,13 @@ std::vector<std::string> split(std::string &line) {
     return words;
 }
 
-void start_threads(int commsize, int proc_rank, Figure &figure, double inc_x, double &sum) {
-    double side = (figure.get_vertex(1).y - figure.get_vertex(0).y) / commsize;
+void start_threads(int commsize, int proc_rank, Interval x_interval, Interval y_interval, double inc_x, double &sum) {
+    double side = (y_interval.p2 - y_interval.p1) / commsize;
 
-    double temp_start_y = figure.get_vertex(0).y + (side * proc_rank);
-    double temp_end_y = temp_start_y + side;
+    y_interval.p1 = y_interval.p1 + (side * proc_rank);
+    y_interval.p2 =   y_interval.p1 + side;
 
-    thread_handler(figure.get_vertex(0).x, figure.get_vertex(2).x, temp_start_y, temp_end_y, inc_x, sum);
+    thread_handler(x_interval, y_interval, inc_x, sum);
 }
 
 
@@ -154,7 +130,7 @@ int main(int argc, char *argv[]) {
     double temp_sum = 0.0;
     double inc_x = 0.1;
     double actual_abs_inaccuracy = 0;
-//    int threads_num = 0;
+
     std::ifstream file_config;
     std::ofstream file_result;
     std::vector<std::string> config_text;
@@ -164,7 +140,6 @@ int main(int argc, char *argv[]) {
     std::chrono::high_resolution_clock::time_point count_start_time;
     std::chrono::high_resolution_clock::time_point count_finish_time;
 
-    Figure figure(4);
 
 
     int commsize, rank, len, number, max, interval;
@@ -217,18 +192,17 @@ int main(int argc, char *argv[]) {
     abs_inaccuracy = std::stod(config_dict[abs_inaccuracy_name]);
     rel_inaccuracy = std::stod(config_dict[rel_inaccuracy_name]);
 
+    /*
+     * Create figure that contains limit points of calculated area
+     */
+
     double x1 = std::stod(config_dict[x1_name]);
     double y1 = std::stod(config_dict[y1_name]);
     double x2 = std::stod(config_dict[x2_name]);
     double y2 = std::stod(config_dict[y2_name]);
-    Vertex v1(x1, y1);
-    Vertex v2(x1, y2);
-    Vertex v3(x2, y2);
-    Vertex v4(x2, y1);
-    figure.add_vertex(v1);
-    figure.add_vertex(v2);
-    figure.add_vertex(v3);
-    figure.add_vertex(v4);
+
+    Interval x_interval(x1, x2);
+    Interval y_interval(y1, y2);
 
     /*
      * Start of calculation
@@ -238,14 +212,14 @@ int main(int argc, char *argv[]) {
         count_start_time = get_current_time_fenced();
     }
 
-    start_threads(commsize, rank, figure, inc_x, sum);
+    start_threads(commsize, rank, x_interval, y_interval, inc_x, sum);
 
     actual_abs_inaccuracy = abs(sum - temp_sum);
     while (actual_abs_inaccuracy > abs_inaccuracy) {
         temp_sum = 0.0;
         inc_x /= 2;
 
-        start_threads(commsize, rank, figure, inc_x, temp_sum);
+        start_threads(commsize, rank, x_interval, y_interval, inc_x, temp_sum);
 
         actual_abs_inaccuracy = abs(sum - temp_sum);
         sum = temp_sum;
